@@ -1,0 +1,39 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+	"name": "Python env for playing with MMM",
+	"build": { "dockerfile": "Dockerfile"  },
+
+	"customizations": {
+		"vscode": {
+		  "extensions": [
+			"ms-python.python",
+			"ms-python.vscode-pylance",
+			"ms-python.black-formatter",
+			"mhutchie.git-graph",
+			"GitHub.copilot",
+			"GitHub.copilot-chat",
+			"ms-python.mypy-type-checker",
+			"eamodio.gitlens",
+			"ms-toolsai.jupyter",
+			"GitHub.vscode-pull-request-github",
+			"vstirbu.vscode-mermaid-preview",
+			"bpruitt-goddard.mermaid-markdown-syntax-highlighting"
+		]
+        // ,
+		//   "settings": {
+		// 	"python.defaultInterpreterPath": "/usr/local/python/current/bin/python"
+		//   }
+		}
+	  },
+
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+	// "features": {
+	// 	"ghcr.io/devcontainers/features/node:1": {}
+	// },
+	// "appPort": [8501],
+	// "postCreateCommand": "pip install -r requirements.txt && npx playwright install && npx playwright install-deps"
+	"postCreateCommand": "poetry install"
+}
