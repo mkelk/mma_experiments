@@ -1,2 +1,2 @@
-# mma_experiments
+# mmm_experiments
 Playing with MMM
