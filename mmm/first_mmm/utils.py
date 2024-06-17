@@ -8,20 +8,6 @@ import arviz as az
 from IPython.display import display
 from xarray import DataArray, Dataset
 
-# May do
-- Nice plot of total contributions per channel
-- Nice plot of ROAS per channel - maybe as a distribution or combined HDI plot
-- mROAS - calc and plots
-- Group channels? Systematize parameter names?
-- AdStock and delay
-- Better priors according to the original paper or HelloFresh video
-- Understand lift
-- Understand hierarchical models
-- Understand that FB drives SEM to some extent - how to model that?
-- Move to my own repo 
-- Simulate a dataset with enough complexity to show the power of the model
-
-
 
 
 def get_distict_color(i, map_name='tab10'):
@@ -117,29 +103,6 @@ class MyModel():
             pm.sample_posterior_predictive(self.idata_inf, extend_inferencedata=True)
 
 
-    def contribution_full_from_feature(self, feature: str):
-        sales_org = self.data[self.obsvar].mean()
-        spend = self.data[feature].mean()
-
-        # original spends
-        spend_vars = {feature: self.data[feature].copy() for feature in self.features}
-        # remove the spend for the feature
-        spend_vars[feature] = spend_vars[feature] * 0
-
-        with self.model:
-            pm.set_data(spend_vars)
-            new_pp = pm.sample_posterior_predictive(self.idata_inf)
-            sales_new = new_pp.posterior_predictive["y_obs"].mean().item()
-        
-        contribution = sales_org - sales_new
-        return {"spend": spend, "sales_org": sales_org, "sales_new": sales_new, "contribution": contribution, "full_roas": contribution / spend}
-
-
-    def contribution_full(self):
-        contributions = { feature: self.contribution_full_from_feature(feature) for feature in self.features}
-        return contributions
-
-
     def line_plot_general(self, features: list, title: str, normalize: bool = True) -> None:
         line_plot(self.data.copy(), features, title, normalize)
 
@@ -206,7 +169,7 @@ class MyModel():
     def get_posterior_distribution_overview(self):
         """Gets an overview table of the properties of the posterior distribution of the parameters"""
         if self.idata is not None:
-            return az.summary(self.idata)
+            return az.summary(self.idata, round_to=3)
         else:
             raise ValueError("Model not fitted yet")
         
@@ -232,3 +195,170 @@ class MyModel():
                 color="blue")            
         else:
             raise ValueError("Model not fitted yet")
+        
+
+    def contribution_full_from_feature(self, feature: str):
+        sales_org = self.data[self.obsvar].mean()
+        spend = self.data[feature].mean()
+
+        # original spends
+        spend_vars = {feature: self.data[feature].copy() for feature in self.features}
+        # remove the spend for the feature
+        spend_vars[feature] = spend_vars[feature] * 0
+
+        with self.model:
+            pm.set_data(spend_vars)
+            new_pp = pm.sample_posterior_predictive(self.idata_inf, progressbar=False)
+            sales_new = new_pp.posterior_predictive["y_obs"].mean().item()
+        
+        contribution = sales_org - sales_new
+        return {"spend": spend, "sales_org": sales_org, "sales_new": sales_new, "contribution": contribution, "full_roas": contribution / spend}
+
+    def contribution_full(self):
+        contributions = { feature: self.contribution_full_from_feature(feature) for feature in self.features}
+        return pd.DataFrame.from_dict(contributions, orient='index')
+
+
+    def test_contribution_full_plot(self):
+
+        # get sales contribution over time from each feature and collect them to a dataframe
+        contribs = {}
+        contribs["sales_org"] = self.data[self.obsvar].copy()
+        for feature in self.features:
+            # set spend_var to 0 for the feature
+            spend_vars = {feature: self.data[feature].copy() for feature in self.features}
+            spend_vars[feature] = spend_vars[feature] * 0
+
+            with self.model:
+                pm.set_data(spend_vars)
+                new_pp = pm.sample_posterior_predictive(self.idata_inf, progressbar=False)
+                sales_contrib = new_pp.posterior_predictive["y_obs"]
+                sales_contrib_mean_time = sales_contrib.mean(dim=["chain", "draw"])
+                # add the sales without feature
+                contribs[feature] = sales_contrib_mean_time
+
+        # create a dataframe from the dict
+        contribs_df = pd.DataFrame(contribs)
+
+        # find actual contribution per feature
+        for feature in self.features:
+            contribs_df[feature] = contribs_df["sales_org"] - contribs_df[feature]
+        
+        # add base contribution
+        contribs_df["base"] = contribs_df["sales_org"] - contribs_df[self.features].sum(axis=1)
+
+        # find actual contribution per feature
+        for feature in self.features:
+            contribs_df[feature] = contribs_df["sales_org"] - contribs_df[feature]
+        
+        # make base the first column
+        cols = contribs_df.columns.tolist()
+        cols = cols[-1:] + cols[:-1]
+        contribs_df = contribs_df[cols]
+
+
+        # drop sales_org
+        contribs_df.drop(columns=["sales_org"], inplace=True)
+
+        # replace negative values with 0
+        # TODO: This is ugly, find a better way
+        contribs_df[contribs_df < 0] = 0
+
+        # make a stacked area plot of the feature contributions
+        contribs_df.plot.area(stacked=True, colormap="tab10", figsize=(20, 5))
+
+        return contribs_df
+    
+    def test_contribution_full_plot_2(self):
+        # get sales contribution over time from each feature and collect them to a dataframe
+
+        contribs = {}
+        contribs["sales_org"] = self.data[self.obsvar].copy()
+
+
+        # Assuming `trace` is your posterior samples from the fitted model
+        # and `time` is your time variable in a numpy array
+        # `data` is a dictionary or DataFrame containing your marketing channels
+
+        trace = self.idata
+        data = self.data
+
+        # Extracting posterior samples of coefficients (betas)
+        beta_name_dict = {feature: f"beta_{feature}" for feature in self.features}
+        beta_traces = {feature: trace.posterior[beta_name_dict[feature]] for feature in self.features}
+        # beta_tv_samples = trace.posterior['beta_tv']  # Shape: (num_samples,)
+        # beta_newspaper_samples = trace.posterior['beta_newspaper']  # Shape: (num_samples,)
+        # beta_radio_samples = trace.posterior['beta_radio']  # Shape: (num_samples,)
+        # channel_traces = { "feature"
+        contribs_dict = { feature: (beta_traces[feature] * data[feature].to_xarray()).mean(dim=["chain", "draw"]) for feature in self.features}
+        contribs_dict["sales_org"] = self.data[self.obsvar].copy()
+
+        contribs_df = pd.DataFrame(contribs_dict)
+
+        # add base contribution
+        contribs_df["base"] = contribs_df["sales_org"] - contribs_df[self.features].sum(axis=1)
+
+        # make base the first column
+        cols = contribs_df.columns.tolist()
+        cols = cols[-1:] + cols[:-1]
+        contribs_df = contribs_df[cols]
+
+
+        # drop sales_org
+        contribs_df.drop(columns=["sales_org"], inplace=True)
+
+        # replace negative values with 0
+        # TODO: This is ugly, find a better way
+        contribs_df[contribs_df < 0] = 0
+
+        # make a stacked area plot of the feature contributions
+        contribs_df.plot.area(stacked=True, colormap="tab10", figsize=(20, 5))
+
+        return contribs_df        
+
+        # Marketing channel spend data
+        # tv = data['tv'].to_xarray()  # Assuming this is a numpy array or pandas Series
+        # newspaper = data['newspaper']
+        # radio = data['radio']
+
+        # Compute contributions for each sample
+        # tv_contributions = beta_tv_samples * tv  # Shape: (num_samples, num_time_points)
+        # contribs["tv"] = tv_contributions
+
+        # newspaper_contributions = beta_newspaper_samples[:, None] * newspaper
+        # radio_contributions = beta_radio_samples[:, None] * radio
+
+        
+
+        # Summarize contributions at each time point
+        # mean_tv_contribution = np.mean(tv_contributions, axis=0)
+        # mean_newspaper_contribution = np.mean(newspaper_contributions, axis=0)
+        # mean_radio_contribution = np.mean(radio_contributions, axis=0)
+
+        # lower_tv_contribution = np.percentile(tv_contributions, 5, axis=0)
+        # upper_tv_contribution = np.percentile(tv_contributions, 95, axis=0)
+
+        # lower_newspaper_contribution = np.percentile(newspaper_contributions, 5, axis=0)
+        # upper_newspaper_contribution = np.percentile(newspaper_contributions, 95, axis=0)
+
+        # lower_radio_contribution = np.percentile(radio_contributions, 5, axis=0)
+        # upper_radio_contribution = np.percentile(radio_contributions, 95, axis=0)
+
+        # # Create a summary DataFrame
+        # time_points = np.arange(len(tv))  # Assuming `time` is a sequence of time points
+        # contribution_summary = pd.DataFrame({
+        #     'Time': time_points,
+        #     'Mean TV Contribution': mean_tv_contribution,
+        #     'Lower TV Contribution (5%)': lower_tv_contribution,
+        #     'Upper TV Contribution (95%)': upper_tv_contribution,
+        #     'Mean Newspaper Contribution': mean_newspaper_contribution,
+        #     'Lower Newspaper Contribution (5%)': lower_newspaper_contribution,
+        #     'Upper Newspaper Contribution (95%)': upper_newspaper_contribution,
+        #     'Mean Radio Contribution': mean_radio_contribution,
+        #     'Lower Radio Contribution (5%)': lower_radio_contribution,
+        #     'Upper Radio Contribution (95%)': upper_radio_contribution
+        # })
+
+        # import ace_tools as tools; tools.display_dataframe_to_user(name="Time-based Channel Contribution Summary", dataframe=contribution_summary)
+
+        # contribution_summary
