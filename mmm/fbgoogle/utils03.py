@@ -45,8 +45,6 @@ class MelkDelayedSaturatedMMM(DelayedSaturatedMMM):
         scale = tmp[1] - tmp[0]
         return scale
     
-
-
     def build_model(
         self,
         X: pd.DataFrame,
