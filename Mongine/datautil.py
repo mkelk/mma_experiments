@@ -4,6 +4,18 @@
 import pandas as pd
 import os
 
+# Export from BQ via 
+# 1. Do query (all rows)
+# 1. Export to Drive
+# 1. Download from Drive
+# 1. Rename to `{date}-{BQtablename}.csv`
+# 1. Import to VS Code
+
+# Files for fermliving
+# - `{date}_fermliving_googleads_campaign_stats.csv`
+# - `{date}_fermliving_facebook_ad_stats.csv`
+# - `{date}_fermliving_shopify_order_analytics.csv`
+
 DATADIR = "data"
 
 FILES = {
