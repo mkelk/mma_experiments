@@ -120,12 +120,13 @@ class MMM():
 
 
 class MMMChannelsStraight(MMM):
-    def __init__(self, data, channelnames):
+    def __init__(self, data, channelnames, allowIntercept: bool = True):
         super().__init__(data)
         self.modelname = 'google_fb_straight'
         self.channelnames = channelnames
         self.fittedparmnames = ['beta', 'sigma']
         self.set_scaling()
+        self.allowIntercept = allowIntercept
   
     def define_model(self):
         """
@@ -135,18 +136,20 @@ class MMMChannelsStraight(MMM):
         
         with pm.Model(coords=coords) as self.model:
             # variables
-            # spend_google = pm.Data('spend_google', self.data_scaled['spend_google'].values, dims=(self.datename))
-
             spend = pm.Data('spend', self.data_scaled[self.channelnames].values, dims=(self.datename, "channels"))
 
             # Priors
+            if self.allowIntercept:
+                intercept = pm.Normal('intercept', mu=1, sigma=1)
+                if 'intercept' not in self.fittedparmnames:
+                    self.fittedparmnames = self.fittedparmnames + ['intercept']
+
             beta = pm.Normal('beta', mu=1, sigma=1, dims=("channels"))
 
             sigma = pm.HalfNormal('sigma')
 
             # Expected value
-            # mu_y = pm.Deterministic('mu_y', beta_google * spend, dims=(self.datename))
-            mu_y = pm.Deterministic('mu_y', pm.math.dot(spend, beta), dims=(self.datename))
+            mu_y = pm.Deterministic('mu_y', intercept + pm.math.dot(spend, beta), dims=(self.datename))
 
             # Likelihood
             y = pm.Normal('y', mu=mu_y, sigma=sigma, observed=self.data_scaled[self.salesname].values, dims=(self.datename))
