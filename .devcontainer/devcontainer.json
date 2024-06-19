@@ -18,7 +18,8 @@
 			"ms-toolsai.jupyter",
 			"GitHub.vscode-pull-request-github",
 			"vstirbu.vscode-mermaid-preview",
-			"bpruitt-goddard.mermaid-markdown-syntax-highlighting"
+			"bpruitt-goddard.mermaid-markdown-syntax-highlighting",
+			"mechatroner.rainbow-csv"
 		]
         // ,
 		//   "settings": {
