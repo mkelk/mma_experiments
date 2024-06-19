@@ -48,7 +48,7 @@ class MMM():
 
     def plot_posterior_predictive(self, plot_kwargs=None):
         """
-        Plot the posterior predictive
+        Plot the posterior predictive of sales
         """
         with self.model:
             pp = pm.sample_posterior_predictive(self.idata, var_names=["mu_y"])
@@ -81,32 +81,72 @@ class MMM():
                 label=f"${100 * hdi_prob}\%$ HDI",  
             )
 
+    def plot_parm_dist(self):
+        az.plot_posterior(
+            self.idata,
+            var_names=self.fittedparmnames,
+            figsize=(12, 6),
+        )
+        plt.tight_layout();
 
 
 
-class MMMGoogleStraight(MMM):
-    def __init__(self, data):
+# class MMMGoogleStraight(MMM):
+#     def __init__(self, data):
+#         super().__init__(data)
+#         self.modelname = 'google_straight'
+#         self.channelnames = ['spend_fb']
+#         self.set_scaling()
+  
+#     def define_model(self):
+#         """
+#         Define the model
+#         """
+#         coords = { self.datename: self.dates }
+#         with pm.Model(coords=coords) as self.model:
+#             # variables
+#             spend_google = pm.Data('spend_google', self.data_scaled['spend_google'].values, dims=(self.datename))
+
+#             # Priors
+#             beta_google = pm.Normal('beta_google', mu=1, sigma=1)
+
+#             sigma = pm.HalfNormal('sigma')
+
+#             # Expected value
+#             mu_y = pm.Deterministic('mu_y', beta_google * spend_google, dims=(self.datename))
+
+#             # Likelihood
+#             y = pm.Normal('y', mu=mu_y, sigma=sigma, observed=self.data_scaled[self.salesname].values, dims=(self.datename))
+
+
+class MMMChannelsStraight(MMM):
+    def __init__(self, data, channelnames):
         super().__init__(data)
-        self.modelname = 'google_straight'
-        self.channelnames = ['spend_fb', 'spend_google']
+        self.modelname = 'google_fb_straight'
+        self.channelnames = channelnames
+        self.fittedparmnames = ['beta', 'sigma']
         self.set_scaling()
   
     def define_model(self):
         """
         Define the model
         """
-        coords = { self.datename: self.dates }
+        coords = { self.datename: self.dates, "channels": self.channelnames }
+        
         with pm.Model(coords=coords) as self.model:
             # variables
-            spend_google = pm.Data('spend_google', self.data_scaled['spend_google'].values, dims=(self.datename))
+            # spend_google = pm.Data('spend_google', self.data_scaled['spend_google'].values, dims=(self.datename))
+
+            spend = pm.Data('spend', self.data_scaled[self.channelnames].values, dims=(self.datename, "channels"))
 
             # Priors
-            beta_google = pm.Normal('beta_google', mu=1, sigma=1)
+            beta = pm.Normal('beta', mu=1, sigma=1, dims=("channels"))
 
             sigma = pm.HalfNormal('sigma')
 
             # Expected value
-            mu_y = pm.Deterministic('mu_y', beta_google * spend_google, dims=(self.datename))
+            # mu_y = pm.Deterministic('mu_y', beta_google * spend, dims=(self.datename))
+            mu_y = pm.Deterministic('mu_y', pm.math.dot(spend, beta), dims=(self.datename))
 
             # Likelihood
             y = pm.Normal('y', mu=mu_y, sigma=sigma, observed=self.data_scaled[self.salesname].values, dims=(self.datename))
