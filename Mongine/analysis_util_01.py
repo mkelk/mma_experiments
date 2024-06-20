@@ -36,14 +36,14 @@ class MMM():
         raise NotImplementedError("Subclass must implement abstract method 'define_model()")
 
 
-    def fit(self):
+    def fit(self, progressbar=True):
         """
         Fit the model
         """
         if self.model is None:
             self.define_model()        
         with self.model:
-            self.idata = pm.sample()
+            self.idata = pm.sample(progressbar=progressbar)
 
 
     def plot_posterior_predictive(self, plot_kwargs=None):
@@ -89,34 +89,6 @@ class MMM():
         )
         plt.tight_layout();
 
-
-
-# class MMMGoogleStraight(MMM):
-#     def __init__(self, data):
-#         super().__init__(data)
-#         self.modelname = 'google_straight'
-#         self.channelnames = ['spend_fb']
-#         self.set_scaling()
-  
-#     def define_model(self):
-#         """
-#         Define the model
-#         """
-#         coords = { self.datename: self.dates }
-#         with pm.Model(coords=coords) as self.model:
-#             # variables
-#             spend_google = pm.Data('spend_google', self.data_scaled['spend_google'].values, dims=(self.datename))
-
-#             # Priors
-#             beta_google = pm.Normal('beta_google', mu=1, sigma=1)
-
-#             sigma = pm.HalfNormal('sigma')
-
-#             # Expected value
-#             mu_y = pm.Deterministic('mu_y', beta_google * spend_google, dims=(self.datename))
-
-#             # Likelihood
-#             y = pm.Normal('y', mu=mu_y, sigma=sigma, observed=self.data_scaled[self.salesname].values, dims=(self.datename))
 
 
 class MMMChannelsStraight(MMM):
