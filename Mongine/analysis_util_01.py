@@ -2,8 +2,11 @@ from abc import ABC, abstractmethod
 import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sns
+
 import pymc as pm
 import arviz as az
+
+from pymc_marketing.mmm.transformers import geometric_adstock, logistic_saturation
 
 
 class MMM():
@@ -92,13 +95,16 @@ class MMM():
 
 
 class MMMChannelsStraight(MMM):
-    def __init__(self, data, channelnames, allowIntercept: bool = True):
+    def __init__(self, data, channelnames, allowIntercept: bool = False, 
+                 allowAdstockAndSat: bool = False, adstock_max_lag: int = 6):
         super().__init__(data)
         self.modelname = 'google_fb_straight'
         self.channelnames = channelnames
         self.fittedparmnames = ['beta', 'sigma']
         self.set_scaling()
         self.allowIntercept = allowIntercept
+        self.allowAdstockAndSat = allowAdstockAndSat
+        self.adstock_max_lag = adstock_max_lag
   
     def define_model(self):
         """
@@ -115,13 +121,48 @@ class MMMChannelsStraight(MMM):
                 intercept = pm.Normal('intercept', mu=1, sigma=1)
                 if 'intercept' not in self.fittedparmnames:
                     self.fittedparmnames = self.fittedparmnames + ['intercept']
-
-            beta = pm.Normal('beta', mu=1, sigma=1, dims=("channels"))
+            else:
+                intercept = 0
 
             sigma = pm.HalfNormal('sigma')
 
+            # channel effects
+            beta = pm.Normal('beta', mu=1, sigma=1, dims=("channels"))
+
+            # adstock and saturation?
+            if self.allowAdstockAndSat:
+                alpha = pm.Beta('alpha', alpha=1, beta=3, dims=("channels"))
+                self.fittedparmnames = self.fittedparmnames + ['alpha']
+
+                lam = pm.Gamma('lam', alpha=3, beta=1, dims=("channels"))                
+                self.fittedparmnames = self.fittedparmnames + ['lam']
+
+                channel_adstock = pm.Deterministic(
+                    name="channel_adstock",
+                    var=geometric_adstock(
+                        x=spend,
+                        alpha=alpha,
+                        l_max=self.adstock_max_lag,
+                        normalize=True,
+                        axis=0,
+                    ),
+                    dims=("date", "channels"),
+                )
+
+                channel_adstock_saturated = pm.Deterministic(
+                    name="channel_adstock_saturated",
+                    var=logistic_saturation(x=channel_adstock, lam=lam),
+                    dims=("date", "channels"),
+                )
+                # Expected value from channels
+                mu_channels = pm.Deterministic('mu_channels', pm.math.dot(channel_adstock_saturated, beta), dims=(self.datename))
+            else:
+                # Expected value from channels
+                mu_channels = pm.Deterministic('mu_channels', pm.math.dot(spend, beta), dims=(self.datename))
+
             # Expected value
-            mu_y = pm.Deterministic('mu_y', intercept + pm.math.dot(spend, beta), dims=(self.datename))
+            mu_y = pm.Deterministic('mu_y', intercept + mu_channels, dims=(self.datename))
+
 
             # Likelihood
             y = pm.Normal('y', mu=mu_y, sigma=sigma, observed=self.data_scaled[self.salesname].values, dims=(self.datename))
