@@ -115,7 +115,12 @@ def get_collected_dataframe():
     shopify = get_engineered_file('shopify')
 
     # facebook
-    fb_df = facebook.groupby('date').agg({'spend': 'sum'}).reset_index()
+    fb_df = facebook.groupby('date').agg({
+            'spend': 'sum', 
+            'impressions' : 'sum',
+            'clicks' : 'sum',
+            'purchases' : 'sum',
+        }).reset_index()
     df_all = fb_df.copy()
     df_all["spend_fb"] = df_all["spend"]
     df_all.drop(columns=['spend'], inplace=True)

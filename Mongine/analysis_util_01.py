@@ -68,7 +68,7 @@ class MMM():
         fig.set_size_inches(12, 6)
         sns.lineplot(x="date", y="sales", color="black", data=self.data_scaled, ax=ax)
         ax.set(title="Sales (Target Variable)", xlabel="date", ylabel="y (scaled)");
-        sns.lineplot(x="date", y="mu_y", color="red", data=plotdata_df, ax=ax)  
+        sns.lineplot(x="date", y="mu_y", color="blue", data=plotdata_df, ax=ax)  
 
         for hdi_prob, alpha in zip((0.94, 0.50), (0.2, 0.4), strict=True):
             likelihood_hdi: DataArray = az.hdi(
@@ -159,6 +159,66 @@ class MMMChannelsStraight(MMM):
             else:
                 # Expected value from channels
                 mu_channels = pm.Deterministic('mu_channels', pm.math.dot(spend, beta), dims=(self.datename))
+
+            # Expected value
+            mu_y = pm.Deterministic('mu_y', intercept + mu_channels, dims=(self.datename))
+
+
+            # Likelihood
+            y = pm.Normal('y', mu=mu_y, sigma=sigma, observed=self.data_scaled[self.salesname].values, dims=(self.datename))
+
+
+
+
+
+
+class MMMChannelsStraightConfounder(MMM):
+    def __init__(self, data, channelnames, allowIntercept: bool = False):
+        super().__init__(data)
+        self.modelname = 'google_fb_straight'
+        self.channelnames = channelnames
+        self.fittedparmnames = ['beta', 'sigma']
+        self.set_scaling()
+        self.allowIntercept = allowIntercept
+  
+    def define_model(self):
+        """
+        Define the model
+        """
+        coords = { self.datename: self.dates }
+        
+        with pm.Model(coords=coords) as self.model:
+            # self.fittedparmnames = ['beta_fb', 'beta_google', 'beta_fb_google', 'sigma']
+            self.fittedparmnames = ['beta_fb', 'beta_google', 'beta_fb_google', 'spend_google_0', 'sigma', 'intercept', 'sigma_google']
+            # variables
+            spend_fb = pm.Data('spend_fb', self.data_scaled['spend_fb'].values, dims=(self.datename))
+
+            sigma = pm.HalfNormal('sigma')
+
+            # intercept
+            intercept = pm.Normal('intercept', mu=1, sigma=1)
+
+            # channel effects
+            beta_fb = pm.Normal('beta_fb', mu=1, sigma=1)
+            beta_google = pm.Normal('beta_google', mu=1, sigma=1)
+
+            # fb contribution
+            mu_fb = pm.Deterministic('mu_fb', beta_fb*spend_fb, dims=(self.datename))
+
+            # google contribution
+            beta_fb_google = pm.Normal('beta_fb_google', mu=1, sigma=1)
+            spend_google_0 = pm.Normal('spend_google_0', mu=1, sigma=1)
+            spend_google_fb = pm.Deterministic('spend_google_fb', spend_fb * beta_fb_google, dims=(self.datename))
+
+            sigma_google = pm.HalfNormal('sigma_google')
+
+            spend_google = pm.Normal('spend_google', mu=spend_google_0 + spend_google_fb, sigma=sigma_google, dims=(self.datename), 
+                                            observed=self.data_scaled['spend_google'].values)
+
+            mu_google = pm.Deterministic('mu_google', beta_google*spend_google, dims=(self.datename))
+
+
+            mu_channels = pm.Deterministic('mu_channels', intercept + mu_fb + mu_google, dims=(self.datename))
 
             # Expected value
             mu_y = pm.Deterministic('mu_y', intercept + mu_channels, dims=(self.datename))
