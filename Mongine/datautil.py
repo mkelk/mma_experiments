@@ -28,7 +28,10 @@ def read_csv(file):
     """
     Read a csv file and return a pandas dataframe
     """
-    filepath = os.path.join(DATADIR, file)
+    # get script filepath
+    script_dir = os.path.dirname(__file__)
+
+    filepath = os.path.join(script_dir, DATADIR, file)
     df = pd.read_csv(filepath)
     return df
 
@@ -81,10 +84,20 @@ def get_engineered_file(filekey):
     df = engineer(df)
     return df
 
-def engineer_facebook_data(df):
+def engineer_facebook_data(df_in):
     """
     Engineer the facebook data
     """
+    df = df_in.copy()
+    # now group by ad.id find the first date this ad.id was seen
+    first_date = df.groupby('ad_id').agg({'date': 'min'}).reset_index()
+    first_date.rename(columns={'date': 'ad_id_date_first'}, inplace=True)
+    df = df.merge(first_date, on='ad_id', how='left')
+    # add a column for days since first seen
+    df['ad_id_days_since_first_seen'] = (df['date'] - df['ad_id_date_first']).dt.days
+
+
+
     return df
 
 def engineer_google_data(df):
@@ -108,7 +121,7 @@ ENGINEERS = {
 
 def get_collected_dataframe():
     """
-    Collect all the dataframes into a single dataframe
+    Collect all the dataframes into a single dataframe, using aggregated values per date
     """
     facebook = get_engineered_file('facebook')
     google = get_engineered_file('google')
@@ -121,14 +134,21 @@ def get_collected_dataframe():
             'clicks' : 'sum',
             'purchases' : 'sum',
         }).reset_index()
+    fb_df.rename(columns={'clicks': 'clicks_fb'}, inplace=True)
+    fb_df.rename(columns={'impressions': 'impressions_fb'}, inplace=True)
+    fb_df.rename(columns={'purchases': 'purchases_fb'}, inplace=True)
+    fb_df.rename(columns={'spend': 'spend_fb'}, inplace=True)
     df_all = fb_df.copy()
-    df_all["spend_fb"] = df_all["spend"]
-    df_all.drop(columns=['spend'], inplace=True)
 
     # google
-    google_df = google.groupby('date').agg({'spend': 'sum'}).reset_index()
-    google_df["spend_google"] = google_df["spend"]
-    google_df.drop(columns=['spend'], inplace=True)
+    google_df = google.groupby('date').agg({
+        'spend': 'sum',
+        'impressions': 'sum',
+        'clicks': 'sum',
+        }).reset_index()
+    google_df.rename(columns={'clicks': 'clicks_google'}, inplace=True)
+    google_df.rename(columns={'impressions': 'impressions_google'}, inplace=True)
+    google_df.rename(columns={'spend': 'spend_google'}, inplace=True)
     df_all = df_all.merge(google_df, on='date', how='outer')
 
     # shopify
@@ -145,8 +165,7 @@ def get_collected_dataframe():
 
     return df_all
 
-    # Merge the dataframes
-    df = facebook.merge(google, on='date', how='outer')
-    df = df.merge(shopify, left_on='date', right_on='order_date', how='outer')
-
-    return df
+# make a main
+if __name__ == "__main__":
+    facebook = get_engineered_file('facebook')
+    

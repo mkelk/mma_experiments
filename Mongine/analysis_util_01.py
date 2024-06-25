@@ -19,19 +19,6 @@ class MMM():
         self.dates = self.data_raw[self.datename]
         self.model: pm.Model = None
 
-    def set_scaling(self):
-        """
-        Set the scaling of the channels and sales to get more normalized data
-        """
-        self.data_scaled = self.data_raw.copy()
-        self.channelscale = {}
-        for channel in self.channelnames:
-            self.channelscale[channel] = self.data_scaled[channel].median()
-            self.data_scaled[channel] = self.data_scaled[channel] / self.channelscale[channel]
-        
-        self.salesscale = self.data_scaled[self.salesname].median()
-        self.data_scaled[self.salesname] = self.data_scaled[self.salesname] / self.salesscale
-
     def define_model(self):
         """
         Define the model based on the modelname
@@ -106,6 +93,19 @@ class MMMChannelsStraight(MMM):
         self.allowAdstockAndSat = allowAdstockAndSat
         self.adstock_max_lag = adstock_max_lag
   
+    def set_scaling(self):
+        """
+        Set the scaling of the channels and sales to get more normalized data
+        """
+        self.data_scaled = self.data_raw.copy()
+        self.channelscale = {}
+        for channel in self.channelnames:
+            self.channelscale[channel] = self.data_scaled[channel].median()
+            self.data_scaled[channel] = self.data_scaled[channel] / self.channelscale[channel]
+        
+        self.salesscale = self.data_scaled[self.salesname].median()
+        self.data_scaled[self.salesname] = self.data_scaled[self.salesname] / self.salesscale
+
     def define_model(self):
         """
         Define the model
@@ -181,6 +181,19 @@ class MMMChannelsStraightConfounder(MMM):
         self.set_scaling()
         self.allowIntercept = allowIntercept
   
+    def set_scaling(self):
+        """
+        Set the scaling of the channels and sales to get more normalized data
+        """
+        self.data_scaled = self.data_raw.copy()
+        self.channelscale = {}
+        for channel in self.channelnames:
+            self.channelscale[channel] = self.data_scaled[channel].median()
+            self.data_scaled[channel] = self.data_scaled[channel] / self.channelscale[channel]
+        
+        self.salesscale = self.data_scaled[self.salesname].median()
+        self.data_scaled[self.salesname] = self.data_scaled[self.salesname] / self.salesscale
+
     def define_model(self):
         """
         Define the model
@@ -226,4 +239,63 @@ class MMMChannelsStraightConfounder(MMM):
 
             # Likelihood
             y = pm.Normal('y', mu=mu_y, sigma=sigma, observed=self.data_scaled[self.salesname].values, dims=(self.datename))
+
+
+
+
+
+class MMMFbGoogleMetrics(MMM):
+    def __init__(self, data, fb_metric = "clicks_fb", google_metric = "clicks_google"):
+        super().__init__(data)
+        self.modelname = 'google_fb_straight'
+        self.fb_metric = fb_metric
+        self.google_metric = google_metric
+        self.fittedparmnames = ['beta_fb', 'beta_google', 'intercept', 'sigma']
+        self.set_scaling()
+  
+    def set_scaling(self):
+        """
+        Set the scaling of the channels and sales to get more normalized data
+        """
+        self.data_scaled = self.data_raw.copy()
+        self.channelscale = {}
+
+        for metric in [self.fb_metric, self.google_metric]:
+            self.channelscale[metric] = self.data_scaled[metric].median()
+            self.data_scaled[metric] = self.data_scaled[metric] / self.channelscale[metric]
+        
+        self.salesscale = self.data_scaled[self.salesname].median()
+        self.data_scaled[self.salesname] = self.data_scaled[self.salesname] / self.salesscale
+
+
+    def define_model(self):
+        """
+        Define the model
+        """
+        coords = { self.datename: self.dates }
+
+        with pm.Model(coords=coords) as self.model:
+            # variables
+            fb_in = pm.Data('fb_in', self.data_scaled[self.fb_metric].values, dims=(self.datename))
+            google_in = pm.Data('google_in', self.data_scaled[self.google_metric].values, dims=(self.datename))
+
+            # Priors
+            intercept = pm.Normal('intercept', mu=1, sigma=1)
+
+            sigma = pm.HalfNormal('sigma')
+
+            # channel effects
+            beta_fb = pm.Normal('beta_fb', mu=1, sigma=1)
+            beta_google = pm.Normal('beta_google', mu=1, sigma=1)
+
+            mu_channels = pm.Deterministic('mu_channels', fb_in*beta_fb + google_in*beta_google, dims=(self.datename))
+
+            # Expected value
+            mu_y = pm.Deterministic('mu_y', intercept + mu_channels, dims=(self.datename))
+
+
+            # Likelihood
+            y = pm.Normal('y', mu=mu_y, sigma=sigma, observed=self.data_scaled[self.salesname].values, dims=(self.datename))
+
+
 
