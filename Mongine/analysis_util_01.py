@@ -10,14 +10,34 @@ from pymc_marketing.mmm.transformers import geometric_adstock, logistic_saturati
 
 
 class MMM():
-    def __init__(self, data):
+    def __init__(self, data, channelnames):
         self.data_raw = data
         self.modelname: str # must be set in subclass
-        self.channelnames: str # must be set in subclass   
+        self.channelnames = channelnames
         self.salesname = 'sales'
         self.datename = 'date'
         self.dates = self.data_raw[self.datename]
+        self.channelscale = 0
+        self.salesscale = 0
+        self.data_scaled = None
         self.model: pm.Model = None
+        self.set_scaling()
+
+    def set_scaling(self):
+        """
+        Set the scaling of the channels and sales to get more normalized data
+        """
+        self.data_scaled = self.data_raw.copy()
+
+        self.channelscale = 0
+        for channel in self.channelnames:
+            if self.data_raw[channel].median() > self.channelscale:
+                self.channelscale = self.data_raw[channel].median()
+        for channel in self.channelnames:
+            self.data_scaled[channel] = self.data_scaled[channel] / self.channelscale
+        
+        self.salesscale = self.data_scaled[self.salesname].median()
+        self.data_scaled[self.salesname] = self.data_scaled[self.salesname] / self.salesscale
 
     def define_model(self):
         """
@@ -84,28 +104,14 @@ class MMM():
 class MMMChannelsStraight(MMM):
     def __init__(self, data, channelnames, allowIntercept: bool = False, 
                  allowAdstockAndSat: bool = False, adstock_max_lag: int = 6):
-        super().__init__(data)
+        super().__init__(data, channelnames)
         self.modelname = 'google_fb_straight'
-        self.channelnames = channelnames
         self.fittedparmnames = ['beta', 'sigma']
         self.set_scaling()
         self.allowIntercept = allowIntercept
         self.allowAdstockAndSat = allowAdstockAndSat
         self.adstock_max_lag = adstock_max_lag
   
-    def set_scaling(self):
-        """
-        Set the scaling of the channels and sales to get more normalized data
-        """
-        self.data_scaled = self.data_raw.copy()
-        self.channelscale = {}
-        for channel in self.channelnames:
-            self.channelscale[channel] = self.data_scaled[channel].median()
-            self.data_scaled[channel] = self.data_scaled[channel] / self.channelscale[channel]
-        
-        self.salesscale = self.data_scaled[self.salesname].median()
-        self.data_scaled[self.salesname] = self.data_scaled[self.salesname] / self.salesscale
-
     def define_model(self):
         """
         Define the model
@@ -118,7 +124,7 @@ class MMMChannelsStraight(MMM):
 
             # Priors
             if self.allowIntercept:
-                intercept = pm.Normal('intercept', mu=1, sigma=1)
+                intercept = pm.Normal('intercept', mu=1, sigma=5)
                 if 'intercept' not in self.fittedparmnames:
                     self.fittedparmnames = self.fittedparmnames + ['intercept']
             else:
@@ -127,7 +133,7 @@ class MMMChannelsStraight(MMM):
             sigma = pm.HalfNormal('sigma')
 
             # channel effects
-            beta = pm.Normal('beta', mu=1, sigma=1, dims=("channels"))
+            beta = pm.Normal('beta', mu=1, sigma=5, dims=("channels"))
 
             # adstock and saturation?
             if self.allowAdstockAndSat:
@@ -174,26 +180,11 @@ class MMMChannelsStraight(MMM):
 
 class MMMChannelsStraightConfounder(MMM):
     def __init__(self, data, channelnames, allowIntercept: bool = False):
-        super().__init__(data)
+        super().__init__(data, channelnames)
         self.modelname = 'google_fb_straight'
-        self.channelnames = channelnames
         self.fittedparmnames = ['beta', 'sigma']
-        self.set_scaling()
         self.allowIntercept = allowIntercept
   
-    def set_scaling(self):
-        """
-        Set the scaling of the channels and sales to get more normalized data
-        """
-        self.data_scaled = self.data_raw.copy()
-        self.channelscale = {}
-        for channel in self.channelnames:
-            self.channelscale[channel] = self.data_scaled[channel].median()
-            self.data_scaled[channel] = self.data_scaled[channel] / self.channelscale[channel]
-        
-        self.salesscale = self.data_scaled[self.salesname].median()
-        self.data_scaled[self.salesname] = self.data_scaled[self.salesname] / self.salesscale
-
     def define_model(self):
         """
         Define the model
@@ -245,27 +236,12 @@ class MMMChannelsStraightConfounder(MMM):
 
 
 class MMMFbGoogleMetrics(MMM):
-    def __init__(self, data, fb_metric = "clicks_fb", google_metric = "clicks_google"):
-        super().__init__(data)
+    def __init__(self, data, channelnames, fb_metric = "clicks_fb", google_metric = "clicks_google"):
+        super().__init__(data, channelnames)
         self.modelname = 'google_fb_straight'
         self.fb_metric = fb_metric
         self.google_metric = google_metric
         self.fittedparmnames = ['beta_fb', 'beta_google', 'intercept', 'sigma']
-        self.set_scaling()
-  
-    def set_scaling(self):
-        """
-        Set the scaling of the channels and sales to get more normalized data
-        """
-        self.data_scaled = self.data_raw.copy()
-        self.channelscale = {}
-
-        for metric in [self.fb_metric, self.google_metric]:
-            self.channelscale[metric] = self.data_scaled[metric].median()
-            self.data_scaled[metric] = self.data_scaled[metric] / self.channelscale[metric]
-        
-        self.salesscale = self.data_scaled[self.salesname].median()
-        self.data_scaled[self.salesname] = self.data_scaled[self.salesname] / self.salesscale
 
 
     def define_model(self):
