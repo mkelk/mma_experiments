@@ -56,30 +56,36 @@ class MMM():
             self.idata = pm.sample(progressbar=progressbar)
 
 
-    def plot_posterior_predictive(self, plot_kwargs=None):
+    def get_back_scaled_idata(self):
+        raise NotImplementedError("Subclass must implement abstract method 'get_back_scaled_idata()")
+
+    def plot_posterior_predictive(self, original_scale=True, plot_kwargs=None):
         """
         Plot the posterior predictive of sales
         """
+        plotvar = "mu_y"
         with self.model:
-            pp = pm.sample_posterior_predictive(self.idata, var_names=["mu_y"])
+            pp = pm.sample_posterior_predictive(self.idata, var_names=[plotvar])
         
         plotdata = { 
             "date" : self.dates }
+        
+        scale = self.salesscale if original_scale else 1.0
 
-        extract_vars = ["mu_y"]
-        for plotvar in extract_vars:
-            plotdata[plotvar] = pp.posterior_predictive[plotvar].mean(dim=["chain", "draw"])
+
+        plotdata[plotvar] = pp.posterior_predictive[plotvar].mean(dim=["chain", "draw"]) * scale
 
         plotdata_df = pd.DataFrame(data=plotdata)
         fig, ax = plt.subplots()
         fig.set_size_inches(12, 6)
-        sns.lineplot(x="date", y="sales", color="black", data=self.data_scaled, ax=ax)
-        ax.set(title="Sales (Target Variable)", xlabel="date", ylabel="y (scaled)");
+        tmpdata = self.data_scaled if not original_scale else self.data_raw
+        sns.lineplot(x="date", y="sales", color="black", data=tmpdata, ax=ax)
+        ax.set(title="Sales (Target Variable)", xlabel="date", ylabel="sales (scaled)" if not original_scale else "sales");
         sns.lineplot(x="date", y="mu_y", color="blue", data=plotdata_df, ax=ax)  
 
         for hdi_prob, alpha in zip((0.94, 0.50), (0.2, 0.4), strict=True):
             likelihood_hdi: DataArray = az.hdi(
-                ary=pp.posterior_predictive, hdi_prob=hdi_prob
+                ary=pp.posterior_predictive * scale, hdi_prob=hdi_prob
             )["mu_y"]
 
             ax.fill_between(
@@ -91,9 +97,9 @@ class MMM():
                 label=f"${100 * hdi_prob}\%$ HDI",  
             )
 
-    def plot_parm_dist(self):
+    def plot_parm_dist(self, original_scale=True):
         az.plot_posterior(
-            self.idata,
+            self.get_back_scaled_idata(),
             var_names=self.fittedparmnames,
             figsize=(12, 6),
         )
@@ -112,6 +118,19 @@ class MMMChannelsStraight(MMM):
         self.allowAdstockAndSat = allowAdstockAndSat
         self.adstock_max_lag = adstock_max_lag
   
+
+    def get_back_scaled_idata(self):
+        """
+        Get the back-scaled idata
+        """
+        back_scaled_idata = self.idata.copy()
+        if self.allowIntercept:
+            back_scaled_idata.posterior["intercept"] = back_scaled_idata.posterior["intercept"] * self.salesscale
+        back_scaled_idata.posterior["sigma"] = back_scaled_idata.posterior["sigma"] * self.channelscale
+        back_scaled_idata.posterior["beta"] = back_scaled_idata.posterior["beta"] * self.salesscale / self.channelscale 
+        return back_scaled_idata
+
+
     def define_model(self):
         """
         Define the model
@@ -179,12 +198,26 @@ class MMMChannelsStraight(MMM):
 
 
 class MMMChannelsStraightConfounder(MMM):
-    def __init__(self, data, channelnames, allowIntercept: bool = False):
+    def __init__(self, data, channelnames):
         super().__init__(data, channelnames)
         self.modelname = 'google_fb_straight'
         self.fittedparmnames = ['beta', 'sigma']
-        self.allowIntercept = allowIntercept
   
+
+    def get_back_scaled_idata(self):
+        """
+        Get the back-scaled idata
+        """
+        back_scaled_idata = self.idata.copy()
+        back_scaled_idata.posterior["intercept"] = back_scaled_idata.posterior["intercept"] * self.salesscale
+        back_scaled_idata.posterior["sigma"] = back_scaled_idata.posterior["sigma"] * self.channelscale
+        back_scaled_idata.posterior["beta_google"] = back_scaled_idata.posterior["beta_google"] * self.salesscale / self.channelscale 
+        back_scaled_idata.posterior["beta_fb"] = back_scaled_idata.posterior["beta_fb"] * self.salesscale / self.channelscale
+        back_scaled_idata.posterior["spend_google_0"] = back_scaled_idata.posterior["spend_google_0"] * self.channelscale
+        back_scaled_idata.posterior["sigma_google"] = back_scaled_idata.posterior["sigma_google"] * self.channelscale
+        return back_scaled_idata
+
+
     def define_model(self):
         """
         Define the model
@@ -242,6 +275,18 @@ class MMMFbGoogleMetrics(MMM):
         self.fb_metric = fb_metric
         self.google_metric = google_metric
         self.fittedparmnames = ['beta_fb', 'beta_google', 'intercept', 'sigma']
+
+
+    def get_back_scaled_idata(self):
+        """
+        Get the back-scaled idata
+        """
+        back_scaled_idata = self.idata.copy()
+        back_scaled_idata.posterior["intercept"] = back_scaled_idata.posterior["intercept"] * self.salesscale
+        back_scaled_idata.posterior["sigma"] = back_scaled_idata.posterior["sigma"] * self.channelscale
+        back_scaled_idata.posterior["beta_fb"] = back_scaled_idata.posterior["beta_fb"] * self.salesscale 
+        back_scaled_idata.posterior["beta_google"] = back_scaled_idata.posterior["beta_google"] * self.salesscale
+        return back_scaled_idata
 
 
     def define_model(self):
